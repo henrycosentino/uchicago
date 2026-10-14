@@ -1,0 +1,13 @@
+*
+
+!*/
+
+!main.ipynb
+!*.csv
+!.gitignore
+!README.md
+
+administrative/
+research/
+__pycache__/
+.DS_Store
