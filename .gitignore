@@ -4,6 +4,7 @@
 
 !main.ipynb
 !*.csv
+!*.parquet
 !.gitignore
 !README.md
 
