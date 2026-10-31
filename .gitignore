@@ -3,7 +3,10 @@
 !*/
 
 !main.ipynb
+!models.py
+!training.py
 !*.csv
+!*.pt
 !*.parquet
 !.gitignore
 !README.md
