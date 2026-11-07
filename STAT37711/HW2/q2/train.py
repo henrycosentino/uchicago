@@ -38,8 +38,8 @@ if not path.exists():
         d_hidden = 128,
         d_out = 1,
         bias = True,
-        batch_size = 128,
-        epochs = 100,
+        batch_size = 256,
+        epochs = 400,
         learning_rate = 1e-3,
         device = 'cpu',
         seed = 42  
@@ -66,40 +66,41 @@ if not path.exists():
         d_embed = 16, 
         d_out = 1,
         bias = True,
-        batch_size = 128,
-        epochs = 100,
+        batch_size = 256,
+        epochs = 400,
         learning_rate = 1e-3,
         device = 'cpu',
         seed = 42  
     )
-    print('Training Embedded cMLP...')
+    print('Training Embedded MLP...')
     emb_mlp.fit(X_tr_idx, y_tr, X_val_idx, y_val, patience = 5)
     torch.save(emb_mlp.state_dict(), "saved_models/mlp_c.pt")
 
 
 # --- Part d ------------------------------------------------------------------------------------------
-ordinal_encoder = OrdinalEncoder(handle_unknown = 'use_encoded_value', unknown_value = -1)
-X_tr_idx = (ordinal_encoder.fit_transform(X_tr) + 1).astype(int)
-X_val_idx = (ordinal_encoder.transform(X_val) + 1).astype(int)
-X_te_idx = (ordinal_encoder.transform(X_te) + 1).astype(int)
-
-n_cat = [len(c) + 1 for c in ordinal_encoder.categories_]
-
-path = pathlib.Path("saved_models/mlp_c.pt")
+path = pathlib.Path("saved_models/mlp_d.pt")
 if not path.exists():
-    emb_mlp = EmbeddingMLP(
-        d_in = X_tr_idx.shape[1],
+    hybrid_mlp = HybridMLP(
         d_hidden = 128,
         n_cat = n_cat,
-        d_embed = 16, 
+        d_te = X_tr_encoded.shape[1],
+        d_embed = 16,
         d_out = 1,
         bias = True,
-        batch_size = 128,
-        epochs = 100,
+        batch_size = 256,
+        epochs = 400,
         learning_rate = 1e-3,
         device = 'cpu',
-        seed = 42  
+        seed = 42
     )
-    print('Training Embedded cMLP...')
-    emb_mlp.fit(X_tr_idx, y_tr, X_val_idx, y_val, patience = 5)
-    torch.save(emb_mlp.state_dict(), "saved_models/mlp_c.pt")
+    print('Training Hybrid MLP...')
+    hybrid_mlp.fit(
+        X_cat     = X_tr_idx, 
+        X_te      = X_tr_encoded, 
+        y         = y_tr,
+        X_cat_val = X_val_idx, 
+        X_te_val  = X_val_encoded, 
+        y_val     = y_val,
+        patience = 5
+    )
+    torch.save(hybrid_mlp.state_dict(), path)

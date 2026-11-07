@@ -200,3 +200,124 @@ class EmbeddingMLP(nn.Module):
         with torch.no_grad():
             X = torch.from_numpy(X).long().to(self.device)
             return self.forward(X).detach().cpu().numpy()
+
+
+# --- MLP w/ Embedding Layer & Target Encoding ----
+class HybridMLP(nn.Module):
+    def __init__(
+            self, 
+            d_hidden: int,
+            n_cat: list[int],
+            d_te: int,
+            d_embed: int,
+            d_out: int = 1, 
+            bias: bool = True, 
+            batch_size: int = 128, 
+            epochs: int = 100, 
+            learning_rate: float = 1e-3,
+            device: str = 'cpu',
+            seed: int = 0
+        ):
+        super().__init__()
+
+        assert all([len(n_cat) > 0, d_embed > 0, d_te >= 0, d_hidden > 0, d_out == 1])
+
+        torch.manual_seed(seed)
+        self.epochs = epochs
+        self.device = device
+        self.batch_size = batch_size
+        self.learning_rate = learning_rate
+
+        self.embedding = nn.ModuleList([
+            nn.Embedding(num_embeddings = n, embedding_dim = d_embed, padding_idx = 0) for n in n_cat
+        ])
+
+        d_combined = len(n_cat) * d_embed + d_te
+        self.network = nn.Sequential(
+            nn.Linear(d_combined, d_hidden, bias=bias),
+            nn.ReLU(),
+            nn.Linear(d_hidden, d_out, bias=bias),
+        )
+        self.to(self.device)
+
+
+    def _tensors(self, X_cat, X_te, y=None):
+        out = [
+            torch.from_numpy(X_cat).long().to(self.device),
+            torch.from_numpy(X_te).float().to(self.device)
+        ]
+        if y is not None:
+            out.append(torch.from_numpy(y).float().view(-1,1).to(self.device))
+        return out
+
+
+    def mse_loss(self, p: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        v = p - y
+        return (v ** 2).mean()
+
+    def fit(
+            self, 
+            X_cat: np.ndarray, 
+            X_te: np.ndarray,
+            y: np.ndarray, 
+            X_cat_val: np.ndarray | None = None, 
+            X_te_val: np.ndarray | None = None, 
+            y_val: np.ndarray | None = None, 
+            patience: int | None = None
+            ):
+        Xc, Xt, y = self._tensors(X_cat, X_te, y)
+
+        early_stopping = all(v is not None for v in (X_cat_val, X_te_val, y_val, patience))
+        
+        if early_stopping:
+            Xc_v, Xt_v, y_v = self._tensors(X_cat_val, X_te_val, y_val)
+            best_loss = np.inf
+            counter = 0
+            best_model_state = None
+
+        dataset = TensorDataset(Xc, Xt, y)
+        loader  = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+        optimizer = torch.optim.SGD(self.parameters(), lr=self.learning_rate, maximize=False)
+
+        self.train()
+
+        for epoch in range(0, self.epochs):
+
+            for xc_b, xt_b, y_b in loader:
+                optimizer.zero_grad()
+                output = self.forward(xc_b, xt_b)
+                loss = self.mse_loss(output, y_b)
+                loss.backward()
+                optimizer.step()
+
+            # Early stopping
+            if early_stopping:
+                self.eval()
+                with torch.no_grad():
+                    val_loss = self.mse_loss(self.forward(Xc_v, Xt_v), y_v).item()
+
+                self.train()
+
+                if val_loss < best_loss:
+                    best_loss = val_loss
+                    counter = 0
+                    best_model_state = {k: v.cpu().clone() for k, v in self.state_dict().items()}
+                else:
+                    counter += 1
+                    if counter >= patience:
+                        print(f"Early stopping triggered at epoch {epoch}")
+                        break
+
+        if early_stopping and best_model_state is not None:
+            self.load_state_dict(best_model_state)
+
+    def forward(self, X_cat: torch.Tensor, X_te: torch.Tensor) -> torch.Tensor:
+        emb = torch.cat([e(X_cat[:, i]) for i, e in enumerate(self.embedding)], dim = 1)
+        out = torch.cat([emb, X_te], dim=1)
+        return self.network(out)
+
+    def predict(self, X_cat, X_te):
+        self.eval()
+        with torch.no_grad():
+            X_cat_t, X_te_t = self._tensors(X_cat, X_te)
+            return self.forward(X_cat_t, X_te_t).cpu().numpy()

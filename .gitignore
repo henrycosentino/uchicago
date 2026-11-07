@@ -4,7 +4,8 @@
 
 !main.ipynb
 !models.py
-!training.py
+!train.py
+!plotting.py
 !*.csv
 !*.pt
 !*.parquet
